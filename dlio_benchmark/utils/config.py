@@ -68,6 +68,10 @@ class ConfigArguments:
     data_folder: str = "./data/"
     output_folder: str = None
     checkpoint_folder: str = "./checkpoints/"
+    checkpoint_daos_pool: str = None
+    checkpoint_daos_cont: str = None
+    checkpoint_daos_chunk_size: int = 64*1024*1024
+    checkpoint_daos_chunks_limit: int = 32 # 2GB
     log_file: str = "dlio.log"
     file_prefix: str = "img"
     keep_files: bool = True
@@ -118,6 +122,8 @@ class ConfigArguments:
     data_loader_sampler: DataLoaderSampler = None
     reader_classname: str = None
     multiprocessing_context: str = "fork"
+    daos_pool: str = None
+    daos_cont: str = None
 
     # derived fields
     required_samples: int = 1
@@ -269,7 +275,7 @@ class ConfigArguments:
         if self.data_loader_sampler is None and self.data_loader_classname is None:
             if self.data_loader == DataLoaderType.TENSORFLOW:
                 self.data_loader_sampler = DataLoaderSampler.ITERATIVE
-            elif self.data_loader in [DataLoaderType.PYTORCH, DataLoaderType.DALI]:
+            elif self.data_loader in [DataLoaderType.PYTORCH,DataLoaderType.DAOS_PYTORCH, DataLoaderType.DALI]:
                 self.data_loader_sampler = DataLoaderSampler.INDEX
         if self.data_loader_classname is not None:
             from dlio_benchmark.data_loader.base_data_loader import BaseDataLoader
@@ -316,7 +322,7 @@ class ConfigArguments:
         num_threads = 1
         if self.read_threads > 0 and self.data_loader is not DataLoaderType.DALI:
             num_threads = self.read_threads
-        samples_per_proc = total_samples//self.comm_size            
+        samples_per_proc = total_samples//self.comm_size
         self.samples_per_thread = samples_per_proc // num_threads
         file_index = 0
         sample_index = 0
@@ -332,7 +338,7 @@ class ConfigArguments:
 
         for rank in range(self.comm_size):
             if rank not in process_thread_file_map:
-                process_thread_file_map[rank] = {}            
+                process_thread_file_map[rank] = {}
             for thread_index in range(num_threads):
                 if (thread_index < samples_per_proc%num_threads):
                     addition = 1
@@ -362,7 +368,7 @@ class ConfigArguments:
         process_thread_file_map = {}
         for global_sample_index in range(total_samples):
             file_index = global_sample_index//self.num_samples_per_file
-            abs_path = os.path.abspath(file_list[file_index]) 
+            abs_path = os.path.abspath(file_list[file_index])
             sample_index = global_sample_index % self.num_samples_per_file
             process_thread_file_map[global_sample_index] = (abs_path, sample_index)
         return process_thread_file_map
@@ -401,9 +407,9 @@ def LoadConfig(args, config):
     if 'framework' in config:
         args.framework = FrameworkType(config['framework'])
     if 'model' in config:
-        ''' 
-        most of the time, this won't change the benchmark. But in future we might use 
-        as a way to do model specific setting. 
+        '''
+        most of the time, this won't change the benchmark. But in future we might use
+        as a way to do model specific setting.
         '''
         args.model = config['model']
 
@@ -450,6 +456,10 @@ def LoadConfig(args, config):
             args.format = FormatType(config['dataset']['format'])
         if 'keep_files' in config['dataset']:
             args.keep_files = config['dataset']['keep_files']
+        if 'daos_pool' in config['dataset']:
+            args.daos_pool = config['dataset']['daos_pool']
+        if 'daos_cont' in config['dataset']:
+            args.daos_cont = config['dataset']['daos_cont']
 
     # data reader
     reader = None
@@ -526,6 +536,14 @@ def LoadConfig(args, config):
         if 'checkpoint_folder' in config['checkpoint']:
             args.checkpoint_folder = config['checkpoint']['checkpoint_folder']
             args.checkpoint_folder = args.checkpoint_folder.rstrip('/')
+        if 'checkpoint_daos_pool' in config['checkpoint']:
+            args.checkpoint_daos_pool = config['checkpoint']['checkpoint_daos_pool']
+        if 'checkpoint_daos_cont' in config['checkpoint']:
+            args.checkpoint_daos_cont = config['checkpoint']['checkpoint_daos_cont']
+        if 'checkpoint_daos_chunk_size' in config['checkpoint']:
+            args.checkpoint_daos_chunk_size = config['checkpoint']['checkpoint_daos_chunk_size']
+        if 'checkpoint_daos_chunks_limit' in config['checkpoint']:
+            args.checkpoint_daos_chunks_limit = config['checkpoint']['checkpoint_daos_chunks_limit']
         if 'checkpoint_after_epoch' in config['checkpoint']:
             args.checkpoint_after_epoch = config['checkpoint']['checkpoint_after_epoch']
         if 'epochs_between_checkpoints' in config['checkpoint']:

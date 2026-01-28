@@ -14,17 +14,22 @@
    See the License for the specific language governing permissions and
    limitations under the License.
 """
-from time import time
+
+import io
+import os
 import logging
 import math
 import pickle
 import torch
-from torch.utils.data import Dataset, DataLoader, RandomSampler, SequentialSampler
-from torch.utils.data.sampler import Sampler
+
 import numpy as np
 
+from pydaos.torch import Dataset as DaosDataset
+from torch.utils.data import Dataset, DataLoader
+from torch.utils.data.sampler import Sampler
+
 from dlio_benchmark.common.constants import MODULE_DATA_LOADER
-from dlio_benchmark.common.enumerations import Shuffle, DatasetType, DataLoaderType
+from dlio_benchmark.common.enumerations import Shuffle, DatasetType, DataLoaderType, FormatType
 from dlio_benchmark.data_loader.base_data_loader import BaseDataLoader
 from dlio_benchmark.reader.reader_factory import ReaderFactory
 from dlio_benchmark.utils.utility import utcnow, DLIOMPI
@@ -114,6 +119,7 @@ class TorchDataLoader(BaseDataLoader):
     @dlp.log_init
     def __init__(self, format_type, dataset_type, epoch_number):
         super().__init__(format_type, dataset_type, epoch_number, DataLoaderType.PYTORCH)
+
     @dlp.log
     def read(self):
         dataset = TorchDataset(self.format_type, self.dataset_type, self.epoch_number, self.num_samples,
@@ -150,7 +156,7 @@ class TorchDataLoader(BaseDataLoader):
                                        num_workers=self._args.read_threads,
                                        pin_memory=True,
                                        drop_last=True,
-                                       worker_init_fn=dataset.worker_init, 
+                                       worker_init_fn=dataset.worker_init,
                                        **kwargs)
         else: 
             self._dataset = DataLoader(dataset,
@@ -177,6 +183,78 @@ class TorchDataLoader(BaseDataLoader):
             yield batch
         self.epoch_number += 1
         dlp.update(epoch=self.epoch_number)
+
+    @dlp.log
+    def finalize(self):
+        pass
+
+
+
+class TorchDaosDataLoader(BaseDataLoader):
+    @dlp.log_init
+    def __init__(self, format_type, dataset_type, epoch_number):
+        if format_type != FormatType.NPZ:
+            raise TypeError(f"TorchDaosDataLoader supports only '{FormatType.NPZ}' data type")
+
+        super().__init__(format_type, dataset_type, epoch_number, DataLoaderType.PYTORCH)
+
+    @dlp.log
+    def read(self):
+        prefix = os.path.join(self._args.data_folder, f"{self.dataset_type}")
+        dataset = DaosDataset(pool=self._args.daos_pool,
+                              cont=self._args.daos_cont,
+                              path=prefix,
+                              transform_fn=lambda b: np.load(io.BytesIO(b), allow_pickle=True)["x"])
+
+        self.num_samples = len(dataset)
+
+        sampler = dlio_sampler(self._args.my_rank,
+                               self._args.comm_size,
+                               self.num_samples,
+                               self._args.sample_shuffle,
+                               self._args.epochs,
+                               self._args.seed)
+
+        if self._args.read_threads >= 1:
+            prefetch_factor = math.ceil(self._args.prefetch_size / self._args.read_threads)
+        else:
+            prefetch_factor = self._args.prefetch_size
+        if prefetch_factor > 0:
+            if self._args.my_rank == 0:
+                logging.debug(
+                    f"{utcnow()} Prefetch size is {self._args.prefetch_size}; prefetch factor of {prefetch_factor} will be set to Torch DataLoader.")
+        else:
+            prefetch_factor = 2
+            if self._args.my_rank == 0:
+                logging.debug(
+                    f"{utcnow()} Prefetch size is 0; a default prefetch factor of 2 will be set to Torch DataLoader.")
+        logging.debug(f"{utcnow()} Setup dataloader with {self._args.read_threads} workers {torch.__version__}")
+        if self._args.read_threads==0:
+            kwargs={}
+        else:
+            kwargs={'multiprocessing_context':self._args.multiprocessing_context,
+                    'prefetch_factor': prefetch_factor}
+            if torch.__version__ != '1.3.1':
+                kwargs['persistent_workers'] = True
+        if torch.__version__ == '1.3.1':
+            if 'prefetch_factor' in kwargs:
+                del kwargs['prefetch_factor']
+
+        self._dataset = DataLoader(dataset,
+                                   batch_size=self.batch_size,
+                                   sampler=sampler,
+                                   num_workers=self._args.read_threads,
+                                   worker_init_fn=dataset.worker_init,
+                                   pin_memory=True,
+                                   drop_last=True,
+                                   **kwargs)
+
+    @dlp.log
+    def next(self):
+        super().next()
+        total = self._args.training_steps if self.dataset_type is DatasetType.TRAIN else self._args.eval_steps
+        for batch in self._dataset:
+            yield batch
 
     @dlp.log
     def finalize(self):

@@ -1,0 +1,41 @@
+model: unet3d
+
+framework: pytorch
+
+workflow:
+  generate_data: False
+  train: True
+  evaluation: True
+  profiling: False
+  checkpoint: False
+
+dataset:
+  data_folder: /mnt/parallelstore/dataset
+  format: npz
+  num_files_train: 10000
+  record_length: 150000000
+  record_length_stdev: 0
+  record_length_resize: 0
+  num_samples_per_file: 1
+  daos_pool: default-pool
+  daos_cont: default-container
+
+reader:
+  data_loader: pytorch
+  batch_size: 32
+  read_threads: 4
+  file_shuffle: seed
+  sample_shuffle: seed
+
+train:
+  epochs: 5
+  computation_time: 0.10
+
+output:
+  folder: /tmp/dfuse_pytorch.log
+
+#checkpoint:
+#  checkpoint_folder: /checkpoints
+#  checkpoint_daos_pool: default-pool
+#  checkpoint_daos_cont: default-container
+#  checkpoint_mechanism_classname: dlio_benchmark.checkpointing.pydaos_checkpointing.PyDaosTorchCheckpointing
