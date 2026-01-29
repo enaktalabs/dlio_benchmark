@@ -17,6 +17,7 @@ core_deps = [
     "pandas>=1.5.1",
     "psutil>=5.9.8",
     "pydftracer==1.0.2",
+    "cffi>=2.0.0",
 ]
 x86_deps = [
     f"hydra-core>={HYDRA_VERSION}",
@@ -102,4 +103,6 @@ setup(
             "dlio_postprocessor = dlio_benchmark.postprocessor:main",
         ]
     },
+    setup_requires=["cffi>=2.0.0"],
+    cffi_modules=["dlio_benchmark/storage/dfs.py:ffibuilder"],
 )
