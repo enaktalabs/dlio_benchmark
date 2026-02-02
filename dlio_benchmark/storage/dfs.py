@@ -2,6 +2,7 @@ from cffi import FFI
 ffibuilder = FFI()
 
 ffibuilder.cdef("""
+    typedef int... mode_t;
     typedef struct py_dfs py_dfs_t;
 
     int daos_init(void);
@@ -14,6 +15,7 @@ ffibuilder.cdef("""
     int py_dfs_close(py_dfs_t *hdl);
 
     int py_dfs_mkdir(py_dfs_t *hdl, char *parent, char *name);
+    int py_dfs_get_mode(py_dfs_t *hdl, char *path, mode_t *mode);
 """)
 
 ffibuilder.set_source(
@@ -87,6 +89,16 @@ err_cont:
         rc = dfs_mkdir(hdl->dfs, obj, name, mode, 0);
         dfs_release(obj);
         return rc;
+    }
+
+    int py_dfs_get_mode(py_dfs_t *hdl, char *path, mode_t *mode) {
+        dfs_obj_t *obj;
+        int rc = dfs_lookup(hdl->dfs, path, O_RDONLY, &obj, mode, NULL);
+        if (rc) {
+            D_ERROR("dfs_lookup error: path='%s', rc=%d", path, rc);
+            return rc;
+        }
+        return dfs_release(obj);
     }
 
     """,

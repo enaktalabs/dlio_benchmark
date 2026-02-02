@@ -16,6 +16,11 @@
 """
 
 import os
+import errno
+import logging
+
+from pathlib import Path
+from py_dfs import ffi, lib
 
 from pydaos.torch import Dataset
 from dlio_benchmark.utils.utility import Profile
@@ -27,6 +32,30 @@ from concurrent.futures import ThreadPoolExecutor,  as_completed
 from multiprocessing import cpu_count
 
 dlp = Profile(MODULE_STORAGE)
+
+def c_str(s: str) -> bytes:
+    if not s:
+        return ffi.NULL
+
+    return s.encode('utf-8')
+
+def check_rc(rc, msg):
+    if rc != 0:
+        raise RuntimeError(f"{msg} failed: {rc}")
+
+
+def makedirs(hdl, path):
+    dirs = list(Path(path).parts)
+    if not dirs:
+        raise RuntimeError(f"invalid path: {path}")
+
+    base = dirs.pop(0)
+    for name in dirs:
+        print(f"creating dir {name} in {base}")
+        rc = lib.py_dfs_mkdir(hdl, c_str(base),  c_str(name))
+        if rc != 0 and rc != errno.EEXIST:
+            raise RuntimeError(f"could not create directory '{name}' in '{base}'")
+        base = os.path.join(base, name)
 
 
 class DaosDfsStorage(DataStorage):
@@ -46,6 +75,8 @@ class DaosDfsStorage(DataStorage):
 
         dataset = Dataset(args.daos_pool, args.daos_cont, args.data_folder)
         files = [name for (name, size) in dataset.objects]
+
+        logging.info(f"namespece={namespace}, data-folder={args.data_folder}")
 
         def get_dir(fname):
             d = os.path.dirname(fname)
@@ -67,7 +98,8 @@ class DaosDfsStorage(DataStorage):
 
         self._dirs = dirs
         self._files = files
-        self.namespace = Namespace(namespace, NamespaceType.HIERARCHICAL)
+        #self.namespace = Namespace(namespace, NamespaceType.HIERARCHICAL)
+        self.namespace = Namespace(namespace, NamespaceType.FLAT)
 
     @dlp.log
     def get_uri(self, id):
@@ -90,6 +122,8 @@ class DaosDfsStorage(DataStorage):
         path = self.get_uri(id)
         path = os.path.normpath(path)
 
+        logging.info(f"get_node id={id}, path={path}")
+
         for dir in self._dirs:
             if dir.startswith(path):
                 return MetadataType.DIRECTORY
@@ -99,6 +133,7 @@ class DaosDfsStorage(DataStorage):
     def walk_node(self, id, use_pattern=False):
         path = self.get_uri(id)
 
+        logging.info(f"walk_node id={id}, path={path} use_pattern={use_pattern}")
         if use_pattern:
             path = path[:path.find("*")]
             return [f for f in self._files if f.startswith(path)]

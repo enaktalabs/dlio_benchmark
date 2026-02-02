@@ -1,4 +1,5 @@
 import os
+import stat
 import errno
 
 from pathlib import Path
@@ -28,7 +29,12 @@ def mkdirall(hdl, path):
             raise RuntimeError(f"could not create directory '{name}' in '{base}'")
         base = os.path.join(base, name)
     
-    
+
+def get_mode(hdl, path):
+    mode = ffi.new("mode_t *")
+    check_rc(lib.py_dfs_get_mode(hdl, c_str(path), mode), "get_mode")
+    return int(mode[0])
+        
 check_rc(lib.daos_init(), "daos_init")
 
 hdl = lib.new_py_dfs_t()
@@ -39,6 +45,10 @@ cont = c_str("cc")
 check_rc(lib.py_dfs_open(pool, cont, hdl), "py_dfs_open")
 
 mkdirall(hdl, "/a/b/c/tomato")
+
+mode = get_mode(hdl, "/a")
+print(f"isdir: {stat.S_ISDIR(mode)} isfile: {stat.S_ISREG(mode)}")
+
 # :check_rc(lib.py_dfs_mkdir(hdl, c_str(dir), c_str(name)), "mkdir")
 
 check_rc(lib.py_dfs_close(hdl), "py_dfs_close")
