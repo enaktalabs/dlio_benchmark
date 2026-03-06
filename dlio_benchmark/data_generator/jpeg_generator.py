@@ -14,6 +14,7 @@
    See the License for the specific language governing permissions and
    limitations under the License.
 """
+import io
 import numpy as np
 import PIL.Image as im
 
@@ -53,5 +54,7 @@ class JPEGGenerator(DataGenerator):
                 self.logger.info(f"Generated file {i}/{self.total_files_to_generate}")
             out_path_spec = self.storage.get_uri(self._file_list[i])
             progress(i+1, self.total_files_to_generate, "Generating JPEG Data")
-            img.save(out_path_spec, format='JPEG', bits=8)
+            buf = io.BytesIO()
+            img.save(buf, format='JPEG', bits=8)
+            self.storage.put_data(out_path_spec, buf.getvalue())
         np.random.seed()

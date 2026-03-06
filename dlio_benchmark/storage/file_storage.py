@@ -90,12 +90,14 @@ class FileStorage(DataStorage):
     # TODO Handle partial read and writes
     @dlp.log
     def put_data(self, id, data, offset=None, length=None):
-        with open(self.get_uri(id), "w") as fd:
+        # id is the fully-resolved path (callers call get_uri() before put_data).
+        # Do NOT call self.get_uri(id) here — that would double-prefix the namespace.
+        with open(id, "wb") as fd:
             fd.write(data)
 
     @dlp.log
     def get_data(self, id, data, offset=None, length=None):
-        with open(self.get_uri(id), "r") as fd:
+        with open(self.get_uri(id), "rb") as fd:
             data = fd.read()
         return data
     
